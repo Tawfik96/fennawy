@@ -4,6 +4,7 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.ContentValues;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.hardware.camera2.*;
 import android.media.Image;
@@ -16,6 +17,7 @@ import android.provider.MediaStore;
 import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -45,7 +47,7 @@ public class MainActivity extends AppCompatActivity {
     private CameraDevice cameraDevice;
     private CameraCaptureSession captureSession;
     private ImageReader imageReader;
-
+    private TextView socketStatus;  // Declare TextView
     private String cameraId;
     private CameraManager cameraManager;
 
@@ -57,25 +59,58 @@ public class MainActivity extends AppCompatActivity {
         textureView = findViewById(R.id.textureView);
         cameraManager = (CameraManager) getSystemService(CAMERA_SERVICE);
 
+        socketStatus = findViewById(R.id.socketStatus);  // Initialize TextView
+
         checkPermissions();
         new Thread(this::connectToServer).start();
     }
 
-    private void connectToServer() {
-        try {
-            socket = new Socket(SERVER_IP, SERVER_PORT);
-            reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-            while (true) {
-                String message = reader.readLine();
-                if (message != null) {
-                    Log.d("Socket", "Received: " + message);
-                    runOnUiThread(() -> handleServerMessage(message));
+    private void connectToServer() {
+        while (true) { // Keep retrying until connected
+            try {
+                socket = new Socket(SERVER_IP, SERVER_PORT);
+                reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+
+                runOnUiThread(() -> updateSocketStatus("Connected", Color.GREEN));  // Update UI
+
+                Log.d("Socket", "Connected to server!");
+
+                while (true) {
+                    try {
+                        String message = reader.readLine();
+                        if (message == null) {  // Server disconnected
+                            Log.e("Socket", "Server disconnected.");
+                            runOnUiThread(() -> updateSocketStatus("Disconnected", Color.RED));
+                            break;  // Exit the loop
+                        }
+
+                        Log.d("Socket", "Received: " + message);
+                        runOnUiThread(() -> handleServerMessage(message));
+
+                    } catch (IOException e) {
+                        Log.e("Socket", "Error reading from server: " + e.getMessage(), e);
+                        runOnUiThread(() -> updateSocketStatus("Disconnected", Color.RED));
+                        break;  // Exit loop if an error occurs
+                    }
                 }
+            } catch (Exception e) {
+                Log.e("Socket", "Connection error: " + e.getMessage(), e);
+                runOnUiThread(() -> updateSocketStatus("Disconnected", Color.RED));  // Update UI
             }
-        } catch (Exception e) {
-            Log.e("Socket", "Connection error: " + e.getMessage(), e);
+
+            // Wait and retry connection if it fails
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException ignored) {}
+
+            Log.d("Socket", "Retrying connection...");
         }
+    }
+
+    private void updateSocketStatus(String status, int color) {
+        socketStatus.setText(status);
+        socketStatus.setTextColor(color);
     }
 
     private void handleServerMessage(String message) {
