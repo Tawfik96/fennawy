@@ -8,6 +8,7 @@ import android.graphics.ImageFormat;
 import android.hardware.camera2.*;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -23,21 +24,16 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.Collections;
-import android.content.ContentValues;
-import android.provider.MediaStore;
-import android.content.Context;
-import android.net.Uri;
-import java.io.OutputStream;
+
 public class MainActivity extends AppCompatActivity {
 
     private static final String SERVER_IP = "192.168.1.106";  // Replace with your PC's IP
@@ -90,9 +86,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void checkPermissions() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE}, 101);
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, 101);
         }
     }
 
@@ -103,7 +98,7 @@ public class MainActivity extends AppCompatActivity {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 Toast.makeText(this, "Permissions granted", Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "Camera and storage permissions required", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -179,50 +174,49 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-
-
     private void saveImage(Image image) {
-        File privateFile = new File(getExternalFilesDir(null), "captured_image.jpg");
+        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+        byte[] bytes = new byte[buffer.remaining()];
+        buffer.get(bytes);
 
-        try (FileOutputStream outputStream = new FileOutputStream(privateFile)) {
-            ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-            byte[] bytes = new byte[buffer.remaining()];
-            buffer.get(bytes);
-            outputStream.write(bytes);
-            Log.d("Camera2", "Image saved: " + privateFile.getAbsolutePath());
-        } catch (Exception e) {
-            Log.e("Camera2", "Error saving image: " + e.getMessage());
-        } finally {
-            image.close();
-        }
+        // Save to gallery
+        saveImageToGallery(bytes);
 
-        // Save to gallery using MediaStore
-        saveImageToGallery(privateFile);
+        image.close();
     }
 
-    private void saveImageToGallery(File privateFile) {
+    private void saveImageToGallery(byte[] imageData) {
         ContentValues values = new ContentValues();
         values.put(MediaStore.Images.Media.DISPLAY_NAME, "captured_image.jpg");
         values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-        values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Fennawy");
+        values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Fennawy");
 
         Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
         if (uri != null) {
-            try (OutputStream out = getContentResolver().openOutputStream(uri);
-                 FileInputStream in = new FileInputStream(privateFile)) {
-                byte[] buffer = new byte[1024];
-                int bytesRead;
-                while ((bytesRead = in.read(buffer)) != -1) {
-                    out.write(buffer, 0, bytesRead);
-                }
-                Log.d("Camera2", "Image successfully saved to gallery!");
+            try (OutputStream outputStream = getContentResolver().openOutputStream(uri)) {
+                outputStream.write(imageData);
+                outputStream.flush();
+                Log.d("Camera2", "Image saved to gallery: " + uri.toString());
             } catch (IOException e) {
-                Log.e("Camera2", "Error saving to gallery: " + e.getMessage());
+                Log.e("Camera2", "Failed to save image: " + e.getMessage());
             }
         } else {
-            Log.e("Camera2", "Failed to create media store entry");
+            Log.e("Camera2", "Failed to create MediaStore entry");
         }
     }
 
-
+    private void closeCamera() {
+        if (captureSession != null) {
+            captureSession.close();
+            captureSession = null;
+        }
+        if (cameraDevice != null) {
+            cameraDevice.close();
+            cameraDevice = null;
+        }
+        if (imageReader != null) {
+            imageReader.close();
+            imageReader = null;
+        }
+    }
 }
