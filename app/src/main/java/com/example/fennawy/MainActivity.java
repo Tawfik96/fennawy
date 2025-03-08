@@ -4,6 +4,7 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.ContentValues;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.hardware.camera2.*;
@@ -27,6 +28,7 @@ import androidx.core.content.ContextCompat;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -55,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);// to keep the screen on when the app is running
         textureView = findViewById(R.id.textureView);
         cameraManager = (CameraManager) getSystemService(CAMERA_SERVICE);
 
@@ -141,6 +143,7 @@ public class MainActivity extends AppCompatActivity {
     @SuppressLint("MissingPermission")
     private void openCamera() {
         try {
+            closeCamera(); // I added this to prevent cache leak
             cameraId = cameraManager.getCameraIdList()[0];  // Use rear camera
             CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
             imageReader = ImageReader.newInstance(1080, 1920, ImageFormat.JPEG, 1);
@@ -201,28 +204,61 @@ public class MainActivity extends AppCompatActivity {
             captureSession.capture(captureBuilder.build(), new CameraCaptureSession.CaptureCallback() {
                 @Override
                 public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
-                    Log.d("Camera2", "Picture Taken Automatically!");
+                    Log.d("Socket-Camera", "Picture Taken Automatically!");
                 }
             }, null);
         } catch (Exception e) {
-            Log.e("Camera2", "Error taking picture: " + e.getMessage());
+            Log.e("Socket-Camera", "Error taking picture: " + e.getMessage());
         }
     }
 
+    private void sendImageToServer(byte[] imageBytes) {
+        if (socket == null || socket.isClosed()) {
+            Log.e("Socket", "Not connected to server.");
+            return;
+        }
+
+        try {
+            Log.d("Socket", "Sending image to server...");
+            OutputStream outputStream = socket.getOutputStream();
+            DataOutputStream dataOutputStream = new DataOutputStream(outputStream);
+
+            // Send image size first
+            dataOutputStream.writeInt(imageBytes.length);
+            dataOutputStream.flush();
+
+            // Send image data
+            outputStream.write(imageBytes);
+            outputStream.flush();
+
+            Log.d("Socket", "Image sent successfully");
+
+        } catch (IOException e) {
+            Log.e("Socket", "Error sending image: " + e.getMessage());
+        }
+    }
+
+
     private void saveImage(Image image) {
+        if (image == null) {
+            Log.e("Socket", "Image is null, skipping save operation.");
+            return;
+        }
         ByteBuffer buffer = image.getPlanes()[0].getBuffer();
         byte[] bytes = new byte[buffer.remaining()];
         buffer.get(bytes);
 
         // Save to gallery
         saveImageToGallery(bytes);
+        new Thread(() -> sendImageToServer(bytes)).start();
 
         image.close();
+
     }
 
     private void saveImageToGallery(byte[] imageData) {
         ContentValues values = new ContentValues();
-        values.put(MediaStore.Images.Media.DISPLAY_NAME, "captured_image.jpg");
+        values.put(MediaStore.Images.Media.DISPLAY_NAME, "captured_image_" + System.currentTimeMillis() + ".jpg");
         values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
         values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Fennawy");
 
