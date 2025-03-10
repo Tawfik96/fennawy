@@ -9,7 +9,7 @@ import chess
 import chess.svg
 import cairosvg  # Needed for SVG to PNG conversion
 
-SERVER_IP = "0.0.0.0"
+SERVER_IP = "0.0.0.0"   #my ip is 192.168.167.176 on the hotspot
 SERVER_PORT = 5001
 
 class ServerApp:
